@@ -30,7 +30,7 @@ RUN if [ ! -d /src/dependencies/flatRepo ]; then \
       gradle --no-daemon -p /src -I gradle/support/fetchDependencies.gradle help; \
     fi
 RUN gradle --no-daemon -p /src prepDev
-RUN gradle --no-daemon -p /src :LaunchSupport:jar :Utility:jar :HeadlessElectron:jar
+RUN gradle --no-daemon -p /src assemble
 
 FROM eclipse-temurin:21-jdk-jammy AS runtime
 
