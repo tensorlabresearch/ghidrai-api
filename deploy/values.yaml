@@ -1,0 +1,36 @@
+image:
+  repository: ghcr.io/tensorlabresearch/ghidrai-api
+  tag: latest
+  pullPolicy: Always
+  pullSecrets:
+    - ghcr-pull-secret
+
+persistence:
+  enabled: true
+  storageClass: local-path
+  size: 50Gi
+
+resources:
+  requests:
+    cpu: 1000m
+    memory: 4Gi
+  limits:
+    cpu: 4000m
+    memory: 10Gi
+
+app:
+  host: 0.0.0.0
+  port: 8089
+  dataDir: /data
+  maxMem: 4G
+
+cloudflared:
+  enabled: true
+  image:
+    repository: cloudflare/cloudflared
+    tag: 2026.2.0
+    pullPolicy: IfNotPresent
+  tunnelTokenSecret:
+    create: false
+    existingSecret: ghidrai-api-tunnel-token
+    key: token

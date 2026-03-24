@@ -1,0 +1,7 @@
+.DS_Store
+.idea/
+.vscode/
+.terraform/
+dist/
+tmp/
+deploy/cloudflare.env

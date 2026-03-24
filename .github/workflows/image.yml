@@ -1,0 +1,222 @@
+name: build-image
+
+on:
+  push:
+    branches:
+      - main
+  repository_dispatch:
+    types:
+      - ghidrai-upstream-push
+  workflow_dispatch:
+    inputs:
+      upstream_repo:
+        description: Full repo name containing the ghidrAI source
+        required: false
+        default: tensorlabresearch/ghidrAI
+      upstream_ref:
+        description: Git ref or commit SHA to build
+        required: false
+        default: refs/heads/master
+      update_chart:
+        description: Commit updated chart metadata after a successful build
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: ghidrai-api-${{ github.event_name }}-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.upstream_branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    if: github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    outputs:
+      upstream_repo: ${{ steps.resolve.outputs.upstream_repo }}
+      upstream_ref: ${{ steps.resolve.outputs.upstream_ref }}
+      upstream_branch: ${{ steps.resolve.outputs.upstream_branch }}
+      upstream_sha: ${{ steps.resolve.outputs.upstream_sha }}
+      short_sha: ${{ steps.resolve.outputs.short_sha }}
+      image_tag: ${{ steps.resolve.outputs.image_tag }}
+      branch_tag: ${{ steps.resolve.outputs.branch_tag }}
+      publish_latest: ${{ steps.resolve.outputs.publish_latest }}
+      update_chart: ${{ steps.resolve.outputs.update_chart }}
+    steps:
+      - id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_REPO: ${{ github.event.client_payload.upstream_repo }}
+          DISPATCH_REF: ${{ github.event.client_payload.upstream_ref }}
+          DISPATCH_BRANCH: ${{ github.event.client_payload.upstream_branch }}
+          DISPATCH_SHA: ${{ github.event.client_payload.upstream_sha }}
+          INPUT_REPO: ${{ inputs.upstream_repo }}
+          INPUT_REF: ${{ inputs.upstream_ref }}
+          INPUT_UPDATE_CHART: ${{ inputs.update_chart }}
+        run: |
+          set -euo pipefail
+
+          default_repo="tensorlabresearch/ghidrAI"
+          default_ref="refs/heads/master"
+          update_chart="true"
+
+          case "${EVENT_NAME}" in
+            repository_dispatch)
+              upstream_repo="${DISPATCH_REPO}"
+              upstream_ref="${DISPATCH_REF}"
+              upstream_branch="${DISPATCH_BRANCH}"
+              upstream_sha="${DISPATCH_SHA}"
+              ;;
+            workflow_dispatch)
+              upstream_repo="${INPUT_REPO:-$default_repo}"
+              upstream_ref="${INPUT_REF:-$default_ref}"
+              upstream_branch=""
+              upstream_sha=""
+              update_chart="${INPUT_UPDATE_CHART:-true}"
+              ;;
+            *)
+              upstream_repo="${default_repo}"
+              upstream_ref="${default_ref}"
+              upstream_branch=""
+              upstream_sha=""
+              ;;
+          esac
+
+          if [[ -z "${upstream_ref}" ]]; then
+            upstream_ref="${default_ref}"
+          fi
+
+          if [[ -z "${upstream_sha}" ]]; then
+            if [[ "${upstream_ref}" =~ ^[0-9a-f]{40}$ ]]; then
+              upstream_sha="${upstream_ref}"
+            else
+              if [[ "${upstream_ref}" != refs/* ]]; then
+                upstream_ref="refs/heads/${upstream_ref}"
+              fi
+              upstream_sha="$(git ls-remote "https://github.com/${upstream_repo}.git" "${upstream_ref}" | awk 'NR==1 { print $1 }')"
+            fi
+          fi
+
+          if [[ -z "${upstream_sha}" ]]; then
+            echo "Failed to resolve upstream SHA for ${upstream_repo} ${upstream_ref}" >&2
+            exit 1
+          fi
+
+          if [[ -z "${upstream_branch}" ]]; then
+            if [[ "${upstream_ref}" == refs/heads/* ]]; then
+              upstream_branch="${upstream_ref#refs/heads/}"
+            else
+              upstream_branch="detached"
+            fi
+          fi
+
+          short_sha="${upstream_sha:0:12}"
+          image_tag="ghidrai-${short_sha}"
+          branch_slug="$(printf '%s' "${upstream_branch}" | tr '[:upper:]' '[:lower:]' | sed -E 's#[^a-z0-9]+#-#g; s#(^-+|-+$)##g')"
+          if [[ -z "${branch_slug}" ]]; then
+            branch_slug="detached"
+          fi
+          branch_tag="branch-${branch_slug}"
+
+          publish_latest="false"
+          if [[ "${upstream_repo}" == "${default_repo}" && "${upstream_branch}" == "master" ]]; then
+            publish_latest="true"
+          fi
+
+          {
+            echo "upstream_repo=${upstream_repo}"
+            echo "upstream_ref=${upstream_ref}"
+            echo "upstream_branch=${upstream_branch}"
+            echo "upstream_sha=${upstream_sha}"
+            echo "short_sha=${short_sha}"
+            echo "image_tag=${image_tag}"
+            echo "branch_tag=${branch_tag}"
+            echo "publish_latest=${publish_latest}"
+            echo "update_chart=${update_chart}"
+          } >> "${GITHUB_OUTPUT}"
+
+  docker:
+    needs: resolve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: tags
+        env:
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+          BRANCH_TAG: ${{ needs.resolve.outputs.branch_tag }}
+          PUBLISH_LATEST: ${{ needs.resolve.outputs.publish_latest }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tags="ghcr.io/${REPOSITORY}:${IMAGE_TAG}"$'\n'"ghcr.io/${REPOSITORY}:${BRANCH_TAG}"
+          if [[ "${PUBLISH_LATEST}" == "true" ]]; then
+            tags="${tags}"$'\n'"ghcr.io/${REPOSITORY}:latest"
+          fi
+          {
+            echo "tags<<EOF"
+            printf '%s\n' "${tags}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          build-args: |
+            GHIDRAI_REPO=https://github.com/${{ needs.resolve.outputs.upstream_repo }}.git
+            GHIDRAI_REF=${{ needs.resolve.outputs.upstream_sha }}
+          tags: ${{ steps.tags.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.resolve.outputs.image_tag }}
+            io.tensorlabresearch.ghidrai.source_repo=${{ needs.resolve.outputs.upstream_repo }}
+            io.tensorlabresearch.ghidrai.source_ref=${{ needs.resolve.outputs.upstream_ref }}
+            io.tensorlabresearch.ghidrai.source_sha=${{ needs.resolve.outputs.upstream_sha }}
+
+  update-chart:
+    needs:
+      - resolve
+      - docker
+    if: needs.resolve.outputs.update_chart == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update chart metadata
+        env:
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+          UPSTREAM_SHA: ${{ needs.resolve.outputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          ./scripts/update-chart-metadata.sh "${IMAGE_TAG}" "${UPSTREAM_SHA}"
+
+      - name: Commit chart update
+        env:
+          SHORT_SHA: ${{ needs.resolve.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- charts/ghidrai-api/Chart.yaml charts/ghidrai-api/values.yaml deploy/values.yaml; then
+            echo "No chart metadata changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add charts/ghidrai-api/Chart.yaml charts/ghidrai-api/values.yaml deploy/values.yaml
+          git commit -m "Update chart for ghidrAI ${SHORT_SHA} [skip ci]"
+          git push

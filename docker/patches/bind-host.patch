@@ -1,0 +1,13 @@
+diff --git a/Ghidra/Features/HeadlessElectron/src/main/java/ghidra/electron/headless/ElectronHeadlessServer.java b/Ghidra/Features/HeadlessElectron/src/main/java/ghidra/electron/headless/ElectronHeadlessServer.java
+--- a/Ghidra/Features/HeadlessElectron/src/main/java/ghidra/electron/headless/ElectronHeadlessServer.java
++++ b/Ghidra/Features/HeadlessElectron/src/main/java/ghidra/electron/headless/ElectronHeadlessServer.java
+@@ -44,7 +44,8 @@ public class ElectronHeadlessServer {
+ 		this.projectStore = new ProjectStore(dataDir, projectOps, eventBroker);
+ 		this.jobManager = new HeadlessJobManager(dataDir, artifactStore, eventBroker, engine);
+ 
+-		server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
++		String bindHost = System.getenv().getOrDefault("GHIDRA_ELECTRON_HOST", "127.0.0.1");
++		server = HttpServer.create(new InetSocketAddress(bindHost, port), 0);
+ 		server.setExecutor(Executors.newCachedThreadPool());
+ 		server.createContext("/api/v1/health", this::handleHealth);
+ 		server.createContext("/api/v1/capabilities", this::handleCapabilities);

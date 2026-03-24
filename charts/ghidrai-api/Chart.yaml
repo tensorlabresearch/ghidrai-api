@@ -1,0 +1,7 @@
+apiVersion: v2
+name: ghidrai-api
+description: Helm chart for the ghidrAI HeadlessElectron API with an optional dedicated cloudflared connector
+type: application
+version: 0.1.0
+appVersion: "latest"
+
