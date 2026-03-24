@@ -3,7 +3,9 @@ FROM gradle:8.10.2-jdk21-jammy AS build
 USER root
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     bash \
+    build-essential \
     ca-certificates \
+    clang \
     curl \
     git \
     make \
