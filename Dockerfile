@@ -46,21 +46,23 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 ghidra \
     && useradd --uid 10001 --gid 10001 --create-home --shell /bin/bash ghidra \
-    && mkdir -p /data
+    && mkdir -p /data /home/gradle/.gradle
 
 ENV GHIDRA_REPO=/opt/ghidrai
 ENV GHIDRA_ELECTRON_HOST=0.0.0.0
 ENV GHIDRA_ELECTRON_PORT=8089
 ENV GHIDRA_ELECTRON_DATA_DIR=/data
 ENV GHIDRA_MAXMEM=2G
+ENV GRADLE_USER_HOME=/home/gradle/.gradle
 
 WORKDIR /opt/ghidrai
 
+COPY --from=build --chown=10001:10001 /home/gradle/.gradle /home/gradle/.gradle
 COPY --from=build --chown=10001:10001 /src /opt/ghidrai
 COPY --chown=10001:10001 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && chown -R 10001:10001 /data /opt/ghidrai
+    && chown -R 10001:10001 /data /home/gradle /opt/ghidrai
 
 USER 10001:10001
 
