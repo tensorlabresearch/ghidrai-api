@@ -32,7 +32,7 @@ RUN if [ ! -d /src/dependencies/flatRepo ]; then \
 RUN gradle --no-daemon -p /src prepDev
 RUN gradle --no-daemon -p /src :LaunchSupport:jar :Utility:jar :HeadlessElectron:jar
 
-FROM eclipse-temurin:21-jre-jammy AS runtime
+FROM eclipse-temurin:21-jdk-jammy AS runtime
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     bash \
