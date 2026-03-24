@@ -46,7 +46,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 ghidra \
     && useradd --uid 10001 --gid 10001 --create-home --shell /bin/bash ghidra \
-    && mkdir -p /data /home/gradle/.gradle
+    && mkdir -p /data /home/gradle/.gradle \
+    && ln -s /opt/ghidrai /src
 
 ENV GHIDRA_REPO=/opt/ghidrai
 ENV GHIDRA_ELECTRON_HOST=0.0.0.0
