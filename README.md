@@ -6,7 +6,7 @@ Docker image, Helm chart, and deployment automation for the `ghidrAI` HeadlessEl
 
 - Builds the upstream `Ghidra/Features/HeadlessElectron` API at pinned commit `9e33b0bd83c90abfe442f1002d0a7d5711493bd9`
 - Patches the upstream server to honor `GHIDRA_ELECTRON_HOST` so it can bind to `0.0.0.0` in Kubernetes
-- Ships a Helm chart for the API service plus an optional dedicated `cloudflared` connector
+- Ships a Helm chart for the API service with an optional dedicated `cloudflared` connector
 - Includes scripts to create a dedicated Cloudflare Tunnel and deploy the release on Kubernetes
 
 ## Repository layout
@@ -30,6 +30,16 @@ Docker image, Helm chart, and deployment automation for the `ghidrAI` HeadlessEl
 - the chart metadata is updated automatically with the new image tag and committed back to `main`
 
 Manual runs are still available through GitHub Actions `workflow_dispatch`.
+
+## Edge and auth model
+
+The recommended production shape is:
+
+- run the `ghidrai-api` workload as a cluster-internal `Service`
+- publish it through your shared gateway or ingress layer
+- enforce auth at the edge with a JWT policy backed by Keycloak or your OIDC provider
+
+If you use the optional `cloudflared` connector in this repo, treat it as network transport only. It is not the client authentication layer.
 
 ## Trigger model
 
@@ -55,7 +65,7 @@ kubectl -n ghidrai-api create secret docker-registry ghcr-pull-secret \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
-2. Create the dedicated Cloudflare Tunnel and token-backed Kubernetes secret:
+2. If you need a dedicated Cloudflare Tunnel for transport, create the tunnel token secret:
 
 ```bash
 cp deploy/cloudflare.env.example deploy/cloudflare.env
@@ -81,6 +91,16 @@ TUNNEL_ID=<existing-tunnel-uuid> ./scripts/create-cloudflare-tunnel.sh
 ./scripts/smoke-test.sh
 ```
 
+If the external route is JWT-protected, provide either an existing bearer token or Keycloak client credentials:
+
+```bash
+KEYCLOAK_TOKEN_URL=https://auth.example.com/realms/<realm>/protocol/openid-connect/token \
+KEYCLOAK_CLIENT_ID=<client-id> \
+KEYCLOAK_CLIENT_SECRET=<client-secret> \
+HOSTNAME=ghidrai-api.example.com \
+./scripts/smoke-test.sh
+```
+
 ## Source automation secret
 
 The source-side dispatch workflow needs a token in `tensorlabresearch/ghidrAI`:
@@ -97,3 +117,19 @@ That token needs enough GitHub access to call `repository_dispatch` on `tensorla
 - Stateful project and artifact data live under `/data`.
 - The checked-in `deploy/values.yaml` currently defaults to a `local-path` PVC; override it as needed for your cluster.
 - The tunnel bootstrap reads Cloudflare settings from `deploy/cloudflare.env` if present, then falls back to `~/.cloudflared/.env`.
+- The checked-in Helm values disable the optional `cloudflared` sidecar path by default so the service can sit behind your existing gateway and JWT policy.
+
+## Token example
+
+When the public hostname is protected by Keycloak at the gateway, obtain a token from Keycloak and send it as a bearer token:
+
+```bash
+TOKEN="$(curl -fsS -X POST https://auth.example.com/realms/<realm>/protocol/openid-connect/token \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  --data-urlencode grant_type=client_credentials \
+  --data-urlencode client_id=<client-id> \
+  --data-urlencode client_secret=<client-secret> | jq -r '.access_token')"
+
+curl -fsS https://ghidrai-api.example.com/api/v1/health \
+  -H "Authorization: Bearer ${TOKEN}"
+```
