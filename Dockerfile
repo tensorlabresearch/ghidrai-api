@@ -30,7 +30,7 @@ RUN if [ ! -d /src/dependencies/flatRepo ]; then \
       gradle --no-daemon -p /src -I gradle/support/fetchDependencies.gradle help; \
     fi
 RUN gradle --no-daemon -p /src prepDev
-RUN gradle --no-daemon -p /src :HeadlessElectron:jar
+RUN gradle --no-daemon -p /src :LaunchSupport:jar :Utility:jar :HeadlessElectron:jar
 
 FROM eclipse-temurin:21-jre-jammy AS runtime
 
@@ -68,4 +68,3 @@ VOLUME ["/data"]
 EXPOSE 8089
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-
